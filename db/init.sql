@@ -48,6 +48,37 @@ CREATE TABLE IF NOT EXISTS equipments (
     CONSTRAINT fk_equip_project FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS organizations (
+    id              BIGINT       NOT NULL AUTO_INCREMENT,
+    name            VARCHAR(128) NOT NULL,
+    type            VARCHAR(32)  NOT NULL DEFAULT 'OWNER',
+    contact_person  VARCHAR(64)  NOT NULL DEFAULT '',
+    contact_phone   VARCHAR(32)  NOT NULL DEFAULT '',
+    credit_code     VARCHAR(32)  NOT NULL DEFAULT '',
+    created_at      DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at      DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    KEY idx_org_type (type),
+    UNIQUE KEY uk_org_credit_code (credit_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS project_responsibilities (
+    id                BIGINT       NOT NULL AUTO_INCREMENT,
+    project_id        BIGINT       NOT NULL,
+    organization_id   BIGINT       NOT NULL,
+    responsibility_type VARCHAR(32) NOT NULL,
+    start_date        DATE         NOT NULL,
+    end_date          DATE         NOT NULL,
+    created_at        DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at        DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    KEY idx_pr_project (project_id),
+    KEY idx_pr_org (organization_id),
+    KEY idx_pr_type_date (responsibility_type, start_date, end_date),
+    CONSTRAINT fk_pr_project FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE,
+    CONSTRAINT fk_pr_org FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS inspections (
     id           BIGINT       NOT NULL AUTO_INCREMENT,
     project_id   BIGINT       NOT NULL,

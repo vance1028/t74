@@ -62,6 +62,34 @@ function mapEquipment(r) {
   };
 }
 
+function mapOrganization(r) {
+  if (!r) return null;
+  return {
+    id: r.id,
+    name: r.name,
+    type: r.type,
+    contactPerson: r.contact_person,
+    contactPhone: r.contact_phone,
+    creditCode: r.credit_code,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
+function mapResponsibility(r) {
+  if (!r) return null;
+  return {
+    id: r.id,
+    projectId: r.project_id,
+    organizationId: r.organization_id,
+    responsibilityType: r.responsibility_type,
+    startDate: r.start_date,
+    endDate: r.end_date,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
 function mapInspection(r) {
   if (!r) return null;
   return {
@@ -82,7 +110,7 @@ async function seed() {
   const conn = await pool.getConnection();
   try {
     await conn.query('SET FOREIGN_KEY_CHECKS = 0');
-    for (const t of ['inspections', 'equipments', 'projects', 'users']) {
+    for (const t of ['inspections', 'project_responsibilities', 'equipments', 'projects', 'organizations', 'users']) {
       await conn.query(`TRUNCATE TABLE ${t}`);
     }
     await conn.query('SET FOREIGN_KEY_CHECKS = 1');
@@ -120,6 +148,31 @@ async function seed() {
         (2, 3, '2026-05-12', 'ROUTINE', 'FAIL', '给排水泵故障，需更换'),
         (3, 3, '2026-04-20', 'SPECIAL', 'FAIL', '滤毒设备老化，建议大修'),
         (1, 3, '2026-06-01', 'ROUTINE', 'PASS', '')`,
+    );
+
+    await conn.query(
+      `INSERT INTO organizations (id, name, type, contact_person, contact_phone, credit_code) VALUES
+        (1, '城投置业有限公司', 'OWNER', '王建国', '13800001111', '91330100MA2ABC1D2E'),
+        (2, '恒泰物业管理有限公司', 'MAINTENANCE', '赵明辉', '13900002222', '91330100MA2FGH3I4J'),
+        (3, '华润万象生活有限公司', 'MAINTENANCE', '陈丽华', '13700003333', '91330100MA2KLM5N6P'),
+        (4, '万达商业管理有限公司', 'USER', '刘伟', '13600004444', '91330100MA2QRS7T8U'),
+        (5, '永辉超市股份有限公司', 'USER', '张红', '13500005555', '91330100MA2UVW9X0Y'),
+        (6, '龙湖地产开发有限公司', 'OWNER', '孙强', '13300006666', '91330100MA2YZA1B2C')`,
+    );
+
+    await conn.query(
+      `INSERT INTO project_responsibilities (id, project_id, organization_id, responsibility_type, start_date, end_date) VALUES
+        (1,  1, 1, 'OWNER',       '2018-09-01', '9999-12-31'),
+        (2,  1, 2, 'MAINTENANCE', '2018-09-01', '2024-12-31'),
+        (3,  1, 3, 'MAINTENANCE', '2025-01-01', '9999-12-31'),
+        (4,  1, 4, 'USER',        '2019-03-01', '2023-02-28'),
+        (5,  1, 5, 'USER',        '2023-03-01', '9999-12-31'),
+        (6,  2, 1, 'OWNER',       '2020-05-15', '2023-06-30'),
+        (7,  2, 6, 'OWNER',       '2023-07-01', '9999-12-31'),
+        (8,  2, 2, 'MAINTENANCE', '2020-05-15', '9999-12-31'),
+        (9,  2, 4, 'USER',        '2020-06-01', '9999-12-31'),
+        (10, 3, 1, 'OWNER',       '2010-03-20', '9999-12-31'),
+        (11, 4, 6, 'OWNER',       '2021-11-30', '9999-12-31')`,
     );
   } finally {
     conn.release();
@@ -257,10 +310,301 @@ async function createInspection(i) {
   return mapInspection(rows[0]);
 }
 
+/* ----------------------------- 单位档案 ----------------------------- */
+
+async function listOrganizations({ type, keyword } = {}) {
+  const where = [];
+  const params = [];
+  if (type !== undefined) { where.push('type = ?'); params.push(type); }
+  if (keyword !== undefined && keyword !== '') {
+    where.push('(name LIKE ? OR credit_code LIKE ?)');
+    const like = `%${keyword}%`;
+    params.push(like, like);
+  }
+  const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const [rows] = await pool.query(`SELECT * FROM organizations ${clause} ORDER BY id`, params);
+  return rows.map(mapOrganization);
+}
+
+async function getOrganization(id) {
+  const [rows] = await pool.query('SELECT * FROM organizations WHERE id = ?', [id]);
+  return mapOrganization(rows[0]);
+}
+
+async function findOrganizationByCreditCode(creditCode) {
+  const [rows] = await pool.query('SELECT * FROM organizations WHERE credit_code = ?', [creditCode]);
+  return mapOrganization(rows[0]);
+}
+
+async function createOrganization(o) {
+  const [r] = await pool.query(
+    `INSERT INTO organizations (name, type, contact_person, contact_phone, credit_code)
+     VALUES (?, ?, ?, ?, ?)`,
+    [o.name, o.type || 'OWNER', o.contactPerson || '', o.contactPhone || '', o.creditCode || ''],
+  );
+  return getOrganization(r.insertId);
+}
+
+async function updateOrganization(id, patch) {
+  const map = {
+    name: 'name', type: 'type', contactPerson: 'contact_person',
+    contactPhone: 'contact_phone', creditCode: 'credit_code',
+  };
+  const sets = [];
+  const params = [];
+  for (const [k, col] of Object.entries(map)) {
+    if (patch[k] !== undefined) { sets.push(`${col} = ?`); params.push(patch[k]); }
+  }
+  if (sets.length) {
+    sets.push('updated_at = CURRENT_TIMESTAMP(3)');
+    params.push(id);
+    await pool.query(`UPDATE organizations SET ${sets.join(', ')} WHERE id = ?`, params);
+  }
+  return getOrganization(id);
+}
+
+async function deleteOrganization(id) {
+  const [r] = await pool.query('DELETE FROM organizations WHERE id = ?', [id]);
+  return r.affectedRows > 0;
+}
+
+async function getOrganizationProjects(orgId) {
+  const [rows] = await pool.query(
+    `SELECT pr.*, p.code AS project_code, p.name AS project_name, o.name AS org_name
+     FROM project_responsibilities pr
+     JOIN projects p ON p.id = pr.project_id
+     JOIN organizations o ON o.id = pr.organization_id
+     WHERE pr.organization_id = ?
+     ORDER BY pr.start_date DESC, pr.id DESC`,
+    [orgId],
+  );
+  return rows.map((r) => ({
+    ...mapResponsibility(r),
+    projectCode: r.project_code,
+    projectName: r.project_name,
+    orgName: r.org_name,
+  }));
+}
+
+/* ----------------------------- 责任关系 ----------------------------- */
+
+async function listResponsibilities({ projectId, organizationId, responsibilityType } = {}) {
+  const where = [];
+  const params = [];
+  if (projectId !== undefined) { where.push('pr.project_id = ?'); params.push(projectId); }
+  if (organizationId !== undefined) { where.push('pr.organization_id = ?'); params.push(organizationId); }
+  if (responsibilityType !== undefined) { where.push('pr.responsibility_type = ?'); params.push(responsibilityType); }
+  const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const [rows] = await pool.query(
+    `SELECT pr.*, o.name AS org_name, p.code AS project_code, p.name AS project_name
+     FROM project_responsibilities pr
+     JOIN organizations o ON o.id = pr.organization_id
+     JOIN projects p ON p.id = pr.project_id
+     ${clause} ORDER BY pr.start_date, pr.id`,
+    params,
+  );
+  return rows.map((r) => ({
+    ...mapResponsibility(r),
+    orgName: r.org_name,
+    projectCode: r.project_code,
+    projectName: r.project_name,
+  }));
+}
+
+async function getResponsibility(id) {
+  const [rows] = await pool.query(
+    `SELECT pr.*, o.name AS org_name, p.code AS project_code, p.name AS project_name
+     FROM project_responsibilities pr
+     JOIN organizations o ON o.id = pr.organization_id
+     JOIN projects p ON p.id = pr.project_id
+     WHERE pr.id = ?`,
+    [id],
+  );
+  const r = rows[0];
+  if (!r) return null;
+  return {
+    ...mapResponsibility(r),
+    orgName: r.org_name,
+    projectCode: r.project_code,
+    projectName: r.project_name,
+  };
+}
+
+async function checkOverlap(projectId, responsibilityType, startDate, endDate, excludeId) {
+  const [rows] = await pool.query(
+    `SELECT id, start_date, end_date FROM project_responsibilities
+     WHERE project_id = ? AND responsibility_type = ?
+       AND start_date <= ? AND end_date >= ?
+       ${excludeId ? 'AND id != ?' : ''}`,
+    excludeId
+      ? [projectId, responsibilityType, endDate, startDate, excludeId]
+      : [projectId, responsibilityType, endDate, startDate],
+  );
+  return rows;
+}
+
+async function createResponsibility(data) {
+  const overlaps = await checkOverlap(data.projectId, data.responsibilityType, data.startDate, data.endDate);
+  if (overlaps.length > 0) {
+    const conflict = overlaps[0];
+    const err = new Error(`时间段与已有记录冲突（ID=${conflict.id}, ${conflict.start_date}~${conflict.end_date}）`);
+    err.code = 'OVERLAP';
+    err.conflict = conflict;
+    throw err;
+  }
+  const [r] = await pool.query(
+    `INSERT INTO project_responsibilities (project_id, organization_id, responsibility_type, start_date, end_date)
+     VALUES (?, ?, ?, ?, ?)`,
+    [data.projectId, data.organizationId, data.responsibilityType, data.startDate, data.endDate],
+  );
+  return getResponsibility(r.insertId);
+}
+
+async function updateResponsibility(id, patch) {
+  const current = await getResponsibility(id);
+  if (!current) return null;
+  const projectId = patch.projectId !== undefined ? patch.projectId : current.projectId;
+  const responsibilityType = patch.responsibilityType !== undefined ? patch.responsibilityType : current.responsibilityType;
+  const startDate = patch.startDate !== undefined ? patch.startDate : current.startDate;
+  const endDate = patch.endDate !== undefined ? patch.endDate : current.endDate;
+  const overlaps = await checkOverlap(projectId, responsibilityType, startDate, endDate, id);
+  if (overlaps.length > 0) {
+    const conflict = overlaps[0];
+    const err = new Error(`时间段与已有记录冲突（ID=${conflict.id}, ${conflict.start_date}~${conflict.end_date}）`);
+    err.code = 'OVERLAP';
+    err.conflict = conflict;
+    throw err;
+  }
+  const map = {
+    projectId: 'project_id', organizationId: 'organization_id',
+    responsibilityType: 'responsibility_type', startDate: 'start_date', endDate: 'end_date',
+  };
+  const sets = [];
+  const params = [];
+  for (const [k, col] of Object.entries(map)) {
+    if (patch[k] !== undefined) { sets.push(`${col} = ?`); params.push(patch[k]); }
+  }
+  if (sets.length) {
+    sets.push('updated_at = CURRENT_TIMESTAMP(3)');
+    params.push(id);
+    await pool.query(`UPDATE project_responsibilities SET ${sets.join(', ')} WHERE id = ?`, params);
+  }
+  return getResponsibility(id);
+}
+
+async function deleteResponsibility(id) {
+  const [r] = await pool.query('DELETE FROM project_responsibilities WHERE id = ?', [id]);
+  return r.affectedRows > 0;
+}
+
+async function getProjectResponsibilityAtDate(projectId, date) {
+  const [rows] = await pool.query(
+    `SELECT pr.*, o.name AS org_name, o.type AS org_type
+     FROM project_responsibilities pr
+     JOIN organizations o ON o.id = pr.organization_id
+     WHERE pr.project_id = ? AND pr.start_date <= ? AND pr.end_date >= ?
+     ORDER BY pr.responsibility_type, pr.start_date`,
+    [projectId, date, date],
+  );
+  return rows.map((r) => ({
+    ...mapResponsibility(r),
+    orgName: r.org_name,
+    orgType: r.org_type,
+  }));
+}
+
+async function getProjectResponsibilityHistory(projectId) {
+  const [rows] = await pool.query(
+    `SELECT pr.*, o.name AS org_name, o.type AS org_type
+     FROM project_responsibilities pr
+     JOIN organizations o ON o.id = pr.organization_id
+     WHERE pr.project_id = ?
+     ORDER BY pr.responsibility_type, pr.start_date, pr.id`,
+    [projectId],
+  );
+  return rows.map((r) => ({
+    ...mapResponsibility(r),
+    orgName: r.org_name,
+    orgType: r.org_type,
+  }));
+}
+
+/* ----------------------------- 责任落实看板 ----------------------------- */
+
+async function getResponsibilityDashboard(daysBeforeExpiry) {
+  const beforeDays = daysBeforeExpiry || 90;
+
+  const [vacancyRows] = await pool.query(
+    `SELECT p.id AS project_id, p.code, p.name, rt.resp_type
+     FROM projects p
+     CROSS JOIN (
+       SELECT 'OWNER' AS resp_type
+       UNION SELECT 'MAINTENANCE'
+     ) rt
+     WHERE NOT EXISTS (
+       SELECT 1 FROM project_responsibilities pr
+       WHERE pr.project_id = p.id
+         AND pr.responsibility_type = rt.resp_type
+         AND pr.start_date <= CURDATE()
+         AND pr.end_date >= CURDATE()
+     )
+     ORDER BY p.id, rt.resp_type`,
+  );
+
+  const vacancyAlerts = vacancyRows.map((r) => ({
+    projectId: r.project_id,
+    projectCode: r.code,
+    projectName: r.name,
+    missingType: r.resp_type,
+  }));
+
+  const [mgrRows] = await pool.query(
+    `SELECT o.id AS org_id, o.name AS org_name, COUNT(DISTINCT pr.project_id) AS project_count
+     FROM organizations o
+     JOIN project_responsibilities pr ON pr.organization_id = o.id
+     WHERE o.type = 'MAINTENANCE'
+       AND pr.responsibility_type = 'MAINTENANCE'
+       AND pr.start_date <= CURDATE()
+       AND pr.end_date >= CURDATE()
+     GROUP BY o.id, o.name
+     ORDER BY project_count DESC`,
+  );
+
+  const managerStats = mgrRows.map((r) => ({
+    orgId: r.org_id,
+    orgName: r.org_name,
+    projectCount: r.project_count,
+  }));
+
+  const [expiryRows] = await pool.query(
+    `SELECT pr.*, o.name AS org_name, p.code AS project_code, p.name AS project_name
+     FROM project_responsibilities pr
+     JOIN organizations o ON o.id = pr.organization_id
+     JOIN projects p ON p.id = pr.project_id
+     WHERE pr.end_date <> '9999-12-31'
+       AND pr.end_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL ? DAY)
+     ORDER BY pr.end_date, pr.id`,
+    [beforeDays],
+  );
+
+  const expiryAlerts = expiryRows.map((r) => ({
+    ...mapResponsibility(r),
+    orgName: r.org_name,
+    projectCode: r.project_code,
+    projectName: r.project_name,
+  }));
+
+  return { vacancyAlerts, managerStats, expiryAlerts };
+}
+
 module.exports = {
   seed, isEmpty,
   findUserByUsername, getUser, listUsers, createUser,
   listProjects, getProject, findProjectByCode, createProject, updateProject, deleteProject,
   listEquipments, createEquipment,
   listInspections, createInspection,
+  listOrganizations, getOrganization, findOrganizationByCreditCode, createOrganization, updateOrganization, deleteOrganization, getOrganizationProjects,
+  listResponsibilities, getResponsibility, createResponsibility, updateResponsibility, deleteResponsibility,
+  getProjectResponsibilityAtDate, getProjectResponsibilityHistory,
+  getResponsibilityDashboard,
 };

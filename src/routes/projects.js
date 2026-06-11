@@ -3,7 +3,7 @@
 const express = require('express');
 const store = require('../data/store');
 const { authRequired, requireRole } = require('../auth');
-const { sendError, isNonEmptyString, toPositiveInt } = require('../utils/http');
+const { sendError, isNonEmptyString, toPositiveInt, isValidDate } = require('../utils/http');
 
 const router = express.Router();
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -90,6 +90,24 @@ router.post('/:id/equipments', requireRole('ADMIN', 'MANAGER'), wrap(async (req,
   if (!isNonEmptyString(b.name)) return sendError(res, 400, '设备名称不能为空');
   const e = await store.createEquipment({ ...b, projectId: id, name: b.name.trim() });
   res.status(201).json({ data: e });
+}));
+
+router.get('/:id/responsibilities/at', wrap(async (req, res) => {
+  const id = toPositiveInt(req.params.id);
+  if (id === null) return sendError(res, 400, '无效的工程 ID');
+  if (!(await store.getProject(id))) return sendError(res, 404, '人防工程不存在');
+  const { date } = req.query;
+  if (!isValidDate(date)) return sendError(res, 400, '日期格式必须为 YYYY-MM-DD');
+  const list = await store.getProjectResponsibilityAtDate(id, date);
+  res.json({ data: list, total: list.length });
+}));
+
+router.get('/:id/responsibilities/history', wrap(async (req, res) => {
+  const id = toPositiveInt(req.params.id);
+  if (id === null) return sendError(res, 400, '无效的工程 ID');
+  if (!(await store.getProject(id))) return sendError(res, 404, '人防工程不存在');
+  const list = await store.getProjectResponsibilityHistory(id);
+  res.json({ data: list, total: list.length });
 }));
 
 module.exports = router;
